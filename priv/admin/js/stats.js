@@ -14,9 +14,20 @@ minispade.register('stats', function() {
     duration: 925,
     toolName: '',
     statName: '',
-    average: 0,
     statGraphCreator: null,
+    yMax: 500,
 
+    /**
+     * Where the line should begin on the
+     * y axis before it is populated with real data.
+     */
+    begin: 0,
+
+    /**
+     * The title for the graph.
+     *
+     * @returns {String}
+     */
     title: function () {
       return this.get('toolName').toUpperCase().replace(/^RIAK\_/, '') +
              ' - ' +
@@ -61,9 +72,9 @@ minispade.register('stats', function() {
 
     yAxis: function () {
       return d3.scale.linear()
-                     .domain([0, 500])
+                     .domain([0, this.get('yMax')])
                      .range([this.get('height'), 0]);
-    }.property('height'),
+    }.property('height', 'yMax'),
 
     /**
      * For drawing a line on the graph.
@@ -81,23 +92,30 @@ minispade.register('stats', function() {
      * at the midway point for this particular stat.
      */
     data: function () {
-      var average = this.get('average');
+      var begin = this.get('begin');
       return d3.range(this.get('xMax')).map(function () {
-        return average;
+        return begin;
       });
-    }.property('xMax', 'average'),
+    }.property('xMax', 'begin'),
 
     /**
      * Header controls.
      */
     heading: function () {
       var areaSelector = this.get('areaSelector'),
+          $area = $(areaSelector),
           id = this.get('markerID');
 
-      $(areaSelector).append(
-        '<h2 class="marker' + id + '">' + this.get('title') + '</h2>');
-      return $(areaSelector).append(
-        '<a class="remove-graph marker' + id + '">remove this graph</a>');
+      $area
+        .append(
+          '<h2 class="marker' + id + '">' + this.get('title') + '</h2>')
+        .append(
+          '<a class="remove-graph marker' + id + '">remove this graph</a>')
+        .append(
+          '<div class="changey marker' + id + '">' +
+            '<input class="input-changey marker' + id + '" type="text"/>' + 
+            '<a class="submit-changey marker' + id + '">Change Y Max</a>' +
+          '</div>');
     }.property('areaSelector', 'markerID', 'title'),
 
     /**
@@ -150,12 +168,13 @@ minispade.register('stats', function() {
      * The path element.
      */
     path: function () {
+      var id = this.get('markerID');
       return this.get('svg')
         .append("g")
-          .attr("clip-path", "url(#clip" + this.get('markerID') + ")")
+          .attr("clip-path", "url(#clip" + id + ")")
         .append("path")
           .datum(this.get('data'))
-          .attr("class", "line")
+          .attr("class", "line line" + id)
           .attr("d", this.get('line'));
     }.property('svg', 'markerID', 'data', 'line'),
 
@@ -193,16 +212,25 @@ minispade.register('stats', function() {
               .ease("linear")
               .attr("transform", "translate(" + this.get('xAxis')(0) + ",0)");
 
+        /*
+         * Create new specifications for the x axis.
+         */
         newx = d3.scale.linear()
                        .domain([newXMin, newXMax - 2])
                        .range([0, this.get('width')]);
         
+        /* 
+         * Slide the x axis to the left and redraw it with new data.
+         */
         d3.select(".xaxis" + id)
           .transition()
           .duration(duration)
           .ease('linear')
           .call(d3.svg.axis().scale(newx).orient('bottom'));
 
+        /*
+         * Track our new data for future use.
+         */
         this.setProperties({'dynamicXMin': newXMin, 'dynamicXMax': newXMax});
 
         /*
@@ -213,8 +241,45 @@ minispade.register('stats', function() {
     },
 
     /**
+     * Creates a jQuery event that triggers a change in the y axis.
+     */
+    createChangeYEvent: function () {
+      var that = this;
+
+      /*
+       * A handler function to be used when we click the submit
+       * button or hit return in the input box.
+       */
+      function handler() {
+        var input = $(this).parent().find('input'),
+            val = JSON.parse(input.val());
+
+        /*
+         * If val is a valid numeric string, redraw the y axis.
+         */
+        if (typeof val === 'number') {
+          that.get('changeYMax').call(that, val);
+        } else {
+          // Create an error message.
+        }
+        input.val('');
+      }
+
+      /*
+       * Run handler() when we press submit or hit enter in
+       * the input field.
+       */
+      $('.submit-changey.marker' + id).on('click', handler);
+      $('.input-changey.marker' + id).on('keyup', function (ev) {
+        if (ev.keyCode === 13) {
+          return handler.call(this);
+        }
+      });
+    },
+
+    /**
      * Describes how to remove this graph from the DOM, also
-     * how to destroy this object and clean up the parent array
+     * how to destroy this ember object and clean up the parent array
      * that contains it.
      *
      * @returns {void}
@@ -232,11 +297,40 @@ minispade.register('stats', function() {
        */
       $('.remove-graph.marker' + id).on('click', function (ev) {
         $('.remove-graph.marker' + id).off('click');
+        $('.submit-changey.marker' + id).off('click');
+        $('.input-changey.marker' + id).off('keyup');
         $('.marker' + id).slideUp(function () {
           $(this).remove();
         });
         creator.get('destroyObj').call(creator, thisObj);
       });
+    },
+
+    /**
+     * Changes the values of the y axis.
+     *
+     * @param {Number} newVal - The new top point of the axis.
+     *
+     * @returns {void}
+     */
+    changeYMax: function (newVal) {
+      /*
+       * Create new data for the y axis.
+       */
+      var newy = d3.scale.linear()
+                         .domain([0, newVal])
+                         .range([this.get('height'), 0]);
+
+      /*
+       * Redraw the line, and adjust it on the y axis.
+       */
+      this.get('line').y(function(d, i) { return newy(d); });
+
+      /*
+       * Redraw the y axis with adjusted values.
+       */
+      d3.select(".yaxis" + this.get('markerID'))
+        .call(d3.svg.axis().scale(newy).ticks(5).orient("left"));
     },
 
     /**
@@ -247,8 +341,10 @@ minispade.register('stats', function() {
      * @retuns {void}
      */
     start: function () {
+      var that = this;
       this.get('heading');
-      this.get('tick').call(this, this.get('average'));
+      this.get('tick').call(this, this.get('begin'));
+      this.get('createChangeYEvent').call(this);
       this.get('setupRemove').call(this);
     }
   });
@@ -406,14 +502,15 @@ minispade.register('stats', function() {
 
         /*
          * Create a new graph.
-         * Every new graph needs a markerID, a title,
-         * an average point, and `this` as its creator.
+         * Every new graph needs a markerID, toolName like 'riak_kv',
+         * statName like 'cpu_n_procs', yMax which is the top point on
+         * the y axis, and `this` as the statGraphCreator.
          */
         graphObject = RiakControl.TimeSeries.create({
           markerID: id += 1,
           toolName: toolName,
           statName: statName,
-          average: 0,
+          yMax: 200,
           statGraphCreator: this
         });
 

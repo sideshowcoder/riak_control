@@ -3472,6 +3472,14 @@ input.gui-point-button-right:active {
   margin: 25px auto;
   text-align: center;
 }
+#stats-page .changey {
+  float: right;
+  margin-top: 25px;
+  margin-right: 15px;
+}
+#stats-page .changey a {
+  cursor: pointer;
+}
 #stats-page .remove-graph {
   float: right;
   cursor: pointer;
